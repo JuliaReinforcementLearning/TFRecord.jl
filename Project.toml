@@ -3,6 +3,10 @@ uuid = "841416d8-1a6a-485a-b0fc-1328d0f53d5e"
 authors = ["Jun Tian <tianjun.cpp@gmail.com> and contributors"]
 version = "0.1.0"
 
+[deps]
+CRC32c = "8bf52ea8-c179-5cab-976a-9e18b702a9bc"
+ProtoBuf = "3349acd9-ac6a-5e09-bcdb-63829b23a429"
+
 [compat]
 julia = "1"
 
