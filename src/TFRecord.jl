@@ -1,5 +1,6 @@
 module TFRecord
 
-# Write your package code here.
+include("jlout/example_pb.jl")
+include("core.jl")
 
 end
