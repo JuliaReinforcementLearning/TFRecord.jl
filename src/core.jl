@@ -34,11 +34,11 @@ uint32 masked_crc32_of_data
 function read_record(io::IO)
     n = read(io, sizeof(UInt64))
     masked_crc32_n = read(io, UInt32)
-    crc32c(n) == unmask(masked_crc32_n) || error("record corrupted")
+    crc32c(n) == unmask(masked_crc32_n) || error("record corrupted, did you set the correct compression?")
 
-    data = read(io, reinterpret(UInt64, n)[])
+    data = read(io, Int(reinterpret(UInt64, n)[]))  # !!! watch https://github.com/JuliaIO/TranscodingStreams.jl/pull/104
     masked_crc32_data = read(io, UInt32)
-    crc32c(data) == unmask(masked_crc32_data) || error("record corrupted")
+    crc32c(data) == unmask(masked_crc32_data) || error("record corrupted, did you set the correct compression?")
     data
 end
 
@@ -51,12 +51,13 @@ end
 
 # Keyword Arguments
 
-- `compression_type=nothing`. No compression by default. Optional values are `:zlib` and `:gzip`.
+- `compression=nothing`. No compression by default. Optional values are `:zlib` and `:gzip`.
 - `bufsize=1024*1024`. Set the buffer size of internal `BufferedOutputStream`. The default value is `1M`. Suggested value is between `1M`~`100M`.
 - `channel_size=1000`. The number of pre-fetched elements.
 
 !!!note
-    To enable reading records from multiple files concurrently, remember to set the number of threads correctly. (See [JULIA_NUM_THREADS](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_NUM_THREADS))
+
+    To enable reading records from multiple files concurrently, remember to set the number of threads correctly (See [JULIA_NUM_THREADS](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_NUM_THREADS)). Unfortunately, the feature is currently broken. Please watch https://github.com/JuliaIO/ProtoBuf.jl/issues/140 .
 
 """
 struct TFRecordReader{T}
@@ -68,8 +69,11 @@ end
 TFRecordReader(s::String;kwargs...) = TFRecordReader{Example}(identity, s;kwargs...)
 
 function TFRecordReader{T}(f, s;compression=nothing,bufsize=1024*1024, channel_size=1000) where T
+    files = glob(s)
+    length(files) > 0 || error("can not find any files under: $s")
     chnl = Channel{T}(channel_size) do ch
-        @threads for file_name in glob(s)
+        # watch https://github.com/JuliaIO/ProtoBuf.jl/issues/140
+        #= @threads =# for file_name in files
             open(file_name, "r") do io
 
                 io = BufferedInputStream(io, bufsize)

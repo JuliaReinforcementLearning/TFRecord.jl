@@ -13,6 +13,8 @@ julia> ] add TFRecord
 ### Write TFRecord
 
 ```julia
+using TFRecord
+
 writer = TFRecordWriter("example.tfrecord")
 
 for i in 1:10
@@ -51,7 +53,3 @@ julia> ? TFRecordReader
 
 julia> ? TFRecordWriter
 ```
-
-## Benchmark
-
-### A Real Dataset
