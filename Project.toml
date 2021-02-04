@@ -1,7 +1,7 @@
 name = "TFRecord"
 uuid = "841416d8-1a6a-485a-b0fc-1328d0f53d5e"
 authors = ["Jun Tian <tianjun.cpp@gmail.com> and contributors"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 BufferedStreams = "e1450e63-4bb3-523b-b2a4-4ffa8c0fd77d"
