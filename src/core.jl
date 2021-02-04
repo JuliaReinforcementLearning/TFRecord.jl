@@ -1,7 +1,4 @@
-export TFRecordReader, TFRecordWriter
-
 using CRC32c
-using Glob
 using Base.Threads
 using CodecZlib
 using BufferedStreams
@@ -32,48 +29,46 @@ uint32 masked_crc32_of_data
 ```
 """
 function read_record(io::IO)
-    n = read(io, sizeof(UInt64))
-    masked_crc32_n = read(io, UInt32)
+    n = Base.read(io, sizeof(UInt64))
+    masked_crc32_n = Base.read(io, UInt32)
     crc32c(n) == unmask(masked_crc32_n) || error("record corrupted, did you set the correct compression?")
 
-    data = read(io, Int(reinterpret(UInt64, n)[]))  # !!! watch https://github.com/JuliaIO/TranscodingStreams.jl/pull/104
-    masked_crc32_data = read(io, UInt32)
+    data = Base.read(io, Int(reinterpret(UInt64, n)[]))  # !!! watch https://github.com/JuliaIO/TranscodingStreams.jl/pull/104
+    masked_crc32_data = Base.read(io, UInt32)
     crc32c(data) == unmask(masked_crc32_data) || error("record corrupted, did you set the correct compression?")
     data
 end
 
-#####
-# TFRecordReader
-#####
-
 """
-    TFRecordReader(s;kwargs...)
+    read([f=identity], s::Union{String,Vector{String}};kwargs...)
+
+Read tensorflow records from file(s). 
 
 # Keyword Arguments
 
 - `compression=nothing`. No compression by default. Optional values are `:zlib` and `:gzip`.
-- `bufsize=1024*1024`. Set the buffer size of internal `BufferedOutputStream`. The default value is `1M`. Suggested value is between `1M`~`100M`.
+- `bufsize=10*1024*1024`. Set the buffer size of internal `BufferedOutputStream`. The default value is `10M`. Suggested value is between `1M`~`100M`.
 - `channel_size=1000`. The number of pre-fetched elements.
+- `eltype=Example`. Change it to the type of result `f(::Example)` if `f` is provided.
 
-!!!note
+!!! note
 
-    To enable reading records from multiple files concurrently, remember to set the number of threads correctly (See [JULIA_NUM_THREADS](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_NUM_THREADS)). Unfortunately, the feature is currently broken. Please watch https://github.com/JuliaIO/ProtoBuf.jl/issues/140 .
-
+    To enable reading records from multiple files concurrently, remember to set the number of threads correctly (See [JULIA_NUM_THREADS](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_NUM_THREADS)).
 """
-struct TFRecordReader{T}
-    ch::Channel
-end
+read(s::String; kw...) = read(identity, [s]; kw...)
+read(fs::Vector; kw...) = read(identity, fs; kw...)
+read(f, s::String; kwargs...) = read(f, [s]; kw...)
 
-@forward TFRecordReader.ch Base.close, Base.iterate, Base.isopen, Base.take!
-
-TFRecordReader(s::String;kwargs...) = TFRecordReader{Example}(identity, s;kwargs...)
-
-function TFRecordReader{T}(f, s;compression=nothing,bufsize=1024*1024, channel_size=1000) where T
-    files = glob(s)
-    length(files) > 0 || error("can not find any files under: $s")
-    chnl = Channel{T}(channel_size) do ch
-        # watch https://github.com/JuliaIO/ProtoBuf.jl/issues/140
-        #= @threads =# for file_name in files
+function read(
+    f,
+    files::Vector;
+    compression=nothing,
+    bufsize=10*1024*1024,
+    channel_size=1_000,
+    record_type=Example
+)
+    Channel{record_type}(channel_size) do ch
+        @threads for file_name in files
             open(file_name, "r") do io
 
                 io = BufferedInputStream(io, bufsize)
@@ -92,7 +87,6 @@ function TFRecordReader{T}(f, s;compression=nothing,bufsize=1024*1024, channel_s
             end
         end
     end
-    TFRecordReader{T}(chnl)
 end
 
 #####
@@ -104,7 +98,9 @@ struct TFRecordWriter{X<:IO}
 end
 
 """
-    TFRecordWriter(s;compression=nothing, bufsize=1024*1024)
+    write(file_name, xs;compression=nothing, bufsize=1024*1024)
+
+`xs` is assumed to be an iterator. Its element must support converting to an `Example`.
 
 Supported `compression` methods are: `:gzip` or `:zlib`.
 Default value is `nothing`, which means do not do compression.
@@ -113,7 +109,7 @@ Default value is `nothing`, which means do not do compression.
 You may want to change it to a larger value when writing large datasets,
 for example `100M`.
 """
-function TFRecordWriter(s::AbstractString;compression=nothing, bufsize=1024*1024)
+function write(s::AbstractString, x;compression=nothing, bufsize=1024*1024)
     io = BufferedOutputStream(open(s, "w"), bufsize)
     if compression == :gzip
         io = GzipCompressorStream(io)
@@ -122,14 +118,17 @@ function TFRecordWriter(s::AbstractString;compression=nothing, bufsize=1024*1024
     else
         isnothing(compression) || throw(ArgumentError("unsupported compression method: $compression"))
     end
-    TFRecordWriter(io)
+    write(io, x)
+    close(io)
 end
 
-Base.close(w::TFRecordWriter) = close(w.io)
+function write(io::IO, xs)
+    for x in xs
+        write(io, convert(Example, x))
+    end
+end
 
-Base.write(w::TFRecordWriter, x) = write(w, convert(Example, x))
-
-function Base.write(w::TFRecordWriter, x::Example)
+function write(io::IO, x::Example)
     buff = IOBuffer()
     writeproto(buff, x)
 
@@ -138,13 +137,13 @@ function Base.write(w::TFRecordWriter, x::Example)
     n = length(data)
 
     buff = IOBuffer()
-    write(buff, n)
+    Base.write(buff, n)
     n_crc = mask(crc32c(seekstart(buff)))
 
-    write(w.io, n)
-    write(w.io, n_crc)
-    write(w.io, data)
-    write(w.io, data_crc)
+    Base.write(io, n)
+    Base.write(io, n_crc)
+    Base.write(io, data)
+    Base.write(io, data_crc)
 end
 
 #####
