@@ -3,26 +3,26 @@ using Test
 
 @testset "TFRecord.jl" begin
 
-    writer = TFRecordWriter("example.tfrecord")
-
     n = 10
     f1 = rand(Bool, n)
     f2 = rand(1:5, n)
     f3 = rand(("cat", "dog", "chicken", "horse", "goat"), n)
     f4 = rand(Float32, n)
 
-    for i in 1:n
-        write(writer, Dict(
-            "feature1" => f1[i],
-            "feature2" => f2[i],
-            "feature3" => f3[i],
-            "feature4" => f4[i],
-        ))
-    end
+    TFRecord.write(
+        "example.tfrecord",
+        (
+            Dict(
+                "feature1" => f1[i],
+                "feature2" => f2[i],
+                "feature3" => f3[i],
+                "feature4" => f4[i],
+            )
+            for i in 1:n
+        )
+    )
 
-    close(writer)
-
-    reader = TFRecordReader("example.tfrecord")
+    reader = TFRecord.read("example.tfrecord")
 
     for (i, example) in enumerate(reader)
         @test example.features.feature["feature1"].int64_list.value[] == Int(f1[i])
