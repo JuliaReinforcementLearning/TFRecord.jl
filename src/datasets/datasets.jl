@@ -67,15 +67,14 @@ end
 
 Base.close(b::RingBuffer) = close(b.buffers) # will propergate to b.results
 
-function RingBuffer(f!, buffer::T;sz=Threads.nthreads(), taskref=nothing) where T
+function RingBuffer(f!, buffer::T; sz = Threads.nthreads(), taskref = nothing) where {T}
     buffers = Channel{T}(sz)
     for _ in 1:sz
         put!(buffers, deepcopy(buffer))
     end
-    results = Channel{T}(sz, spawn=true, taskref=taskref) do ch
-        Threads.foreach(buffers;schedule=Threads.StaticSchedule()) do x
-        # for x in buffers
-            f!(x)  # in-place operation
+    results = Channel{T}(sz, spawn = true, taskref = taskref) do ch
+        Threads.@threads :static for x in buffers
+            f!(x)
             put!(ch, x)
         end
     end
