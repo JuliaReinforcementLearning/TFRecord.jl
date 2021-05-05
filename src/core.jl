@@ -4,6 +4,7 @@ using CodecZlib
 using BufferedStreams
 using MacroTools: @forward
 using ProtoBuf: ProtoType
+using TranscodingStreams: NoopStream
 
 # Ref: https://github.com/tensorflow/tensorflow/blob/295ad2781683835be974faba0a191528d8079768/tensorflow/core/lib/hash/crc32c.h#L50-L59
 
@@ -43,7 +44,7 @@ end
 """
     read([f=identity], s::Union{String,Vector{String}};kwargs...)
 
-Read tensorflow records from file(s). 
+Read tensorflow records from file(s).
 
 # Keyword Arguments
 
@@ -56,34 +57,26 @@ Read tensorflow records from file(s).
 
     To enable reading records from multiple files concurrently, remember to set the number of threads correctly (See [JULIA_NUM_THREADS](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_NUM_THREADS)).
 """
-read(s::String; kw...) = read(identity, [s]; kw...)
-read(fs::Vector; kw...) = read(identity, fs; kw...)
-read(f, s::String; kwargs...) = read(f, [s]; kw...)
+read(s; kw...) = read(identity, s; kw...)
 
 function read(
     f,
-    files::Vector;
+    files;
     compression = nothing,
     bufsize = 10 * 1024 * 1024,
     channel_size = 1_000,
     record_type = Example,
 )
+
+    file_itr(file::AbstractString) = [file]
+    file_itr(files) = files
+
     Channel{record_type}(channel_size) do ch
-        @threads for file_name in files
-            open(file_name, "r") do io
-
-                io = BufferedInputStream(io, bufsize)
-                if compression == :gzip
-                    io = GzipDecompressorStream(io)
-                elseif compression == :zlib
-                    io = ZlibDecompressorStream(io)
-                else
-                    isnothing(compression) ||
-                        throw(ArgumentError("unsupported compression method: $compression"))
-                end
-
-                while !eof(io)
-                    instance = readproto(IOBuffer(read_record(io)), record_type())
+        @threads for file_name in file_itr(files)
+            open(decompressor_stream(compression), file_name, "r") do io
+                buffered_io = BufferedInputStream(io, bufsize)
+                while !eof(buffered_io)
+                    instance = readproto(IOBuffer(read_record(buffered_io)), record_type())
                     put!(ch, f(instance))
                 end
             end
@@ -111,17 +104,11 @@ Default value is `nothing`, which means do not do compression.
 You may want to change it to a larger value when writing large datasets,
 for example `100M`.
 """
-function write(s::AbstractString, x;compression=nothing, bufsize=1024*1024)
-    io = BufferedOutputStream(open(s, "w"), bufsize)
-    if compression == :gzip
-        io = GzipCompressorStream(io)
-    elseif compression == :zlib
-        io = ZlibCompressorStream(io)
-    else
-        isnothing(compression) || throw(ArgumentError("unsupported compression method: $compression"))
+function write(s::AbstractString, x; compression=nothing, bufsize=1024*1024)
+    open(compressor_stream(compression), s, "w") do io
+        buffered_io = BufferedOutputStream(open(s, "w"), bufsize)
+        write(buffered_io, x)
     end
-    write(io, x)
-    close(io)
 end
 
 function write(io::IO, xs)
@@ -169,4 +156,30 @@ function Base.convert(::Type{Example}, x::Dict)
     d = Example()
     d.features = convert(Features, x)
     d
+end
+
+# (De)compression
+
+function compressor_stream(compression)
+    if isnothing(compression)
+        NoopStream
+    elseif compression === :gzip
+        GzipCompressorStream
+    elseif compression === :zlib
+        ZlibCompressorStream
+    else
+        throw(ArgumentError("Unsupported compression method: $compression"))
+    end
+end
+
+function decompressor_stream(compression)
+    if isnothing(compression)
+        NoopStream
+    elseif compression === :gzip
+        GzipDecompressorStream
+    elseif compression === :zlib
+        ZlibDecompressorStream
+    else
+        throw(ArgumentError("Unsupported decompression method: $compression"))
+    end
 end
