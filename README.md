@@ -50,10 +50,12 @@ for example in TFRecord.read("example.tfrecord")
 end
 ```
 
+Please refer to `test/runtest.jl` to get the content encoded in the `example`.
+
 For more fine-grained control, please read the doc:
 
 ```julia
-julia> ? TFRecord.reade
+julia> ? TFRecord.read
 
 julia> ? TFRecord.write
 ```
