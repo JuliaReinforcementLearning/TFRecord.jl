@@ -46,6 +46,8 @@ end
 
 Read tensorflow records from file(s).
 
+f performs a transformation on the dataset that is given.
+
 # Keyword Arguments
 
 - `compression=nothing`. No compression by default. Optional values are `:zlib` and `:gzip`.
@@ -72,7 +74,7 @@ function read(
     file_itr(files) = files
 
     typeof(f) == Type ? type = record_type : type = f 
-    
+
     Channel{type}(channel_size) do ch
         @threads for file_name in file_itr(files)
             open(decompressor_stream(compression), file_name, "r") do io
