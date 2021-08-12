@@ -71,7 +71,9 @@ function read(
     file_itr(file::AbstractString) = [file]
     file_itr(files) = files
 
-    Channel{record_type}(channel_size) do ch
+    typeof(f) == Type ? type = record_type : type = f 
+    
+    Channel{type}(channel_size) do ch
         @threads for file_name in file_itr(files)
             open(decompressor_stream(compression), file_name, "r") do io
                 buffered_io = BufferedInputStream(io, bufsize)
