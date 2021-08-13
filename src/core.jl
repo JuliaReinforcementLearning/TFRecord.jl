@@ -48,7 +48,6 @@ Read tensorflow records from file(s).
 
 # Keyword Arguments
 
-- `f=Example`. Changes the type of the elements in the channel to the type specified by `f` if provided.
 - `compression=nothing`. No compression by default. Optional values are `:zlib` and `:gzip`.
 - `bufsize=10*1024*1024`. Set the buffer size of internal `BufferedOutputStream`. The default value is `10M`. Suggested value is between `1M`~`100M`.
 - `channel_size=1000`. The number of pre-fetched elements.
@@ -62,7 +61,6 @@ read(s; kw...) = read(s; kw...)
 
 function read(
     files;
-    f = Example,
     compression = nothing,
     bufsize = 10 * 1024 * 1024,
     channel_size = 1_000,
@@ -72,13 +70,13 @@ function read(
     file_itr(file::AbstractString) = [file]
     file_itr(files) = files
 
-    Channel{f}(channel_size) do ch
+    Channel{record_type}(channel_size) do ch
         @threads for file_name in file_itr(files)
             open(decompressor_stream(compression), file_name, "r") do io
                 buffered_io = BufferedInputStream(io, bufsize)
                 while !eof(buffered_io)
                     instance = readproto(IOBuffer(read_record(buffered_io)), record_type())
-                    put!(ch, f(instance))
+                    put!(ch, instance)
                 end
             end
         end
