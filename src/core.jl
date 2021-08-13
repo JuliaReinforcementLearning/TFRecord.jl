@@ -56,8 +56,6 @@ Read tensorflow records from file(s).
 
     To enable reading records from multiple files concurrently, remember to set the number of threads correctly (See [JULIA_NUM_THREADS](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_NUM_THREADS)).
 """
-read(s; kw...) = read(s; kw...)
-
 function read(
     files;
     compression = nothing,
