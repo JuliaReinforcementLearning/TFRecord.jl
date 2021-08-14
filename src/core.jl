@@ -42,7 +42,7 @@ function read_record(io::IO)
 end
 
 """
-    read([f=identity], s::Union{String,Vector{String}};kwargs...)
+    read(s::Union{String,Vector{String}};kwargs...)
 
 Read tensorflow records from file(s).
 
@@ -51,33 +51,26 @@ Read tensorflow records from file(s).
 - `compression=nothing`. No compression by default. Optional values are `:zlib` and `:gzip`.
 - `bufsize=10*1024*1024`. Set the buffer size of internal `BufferedOutputStream`. The default value is `10M`. Suggested value is between `1M`~`100M`.
 - `channel_size=1000`. The number of pre-fetched elements.
-- `eltype=Example`. Change it to the type of result `f(::Example)` if `f` is provided.
 
 !!! note
 
     To enable reading records from multiple files concurrently, remember to set the number of threads correctly (See [JULIA_NUM_THREADS](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_NUM_THREADS)).
 """
-read(s; kw...) = read(identity, s; kw...)
-
 function read(
-    f,
     files;
     compression = nothing,
     bufsize = 10 * 1024 * 1024,
     channel_size = 1_000,
-    record_type = Example,
 )
-
     file_itr(file::AbstractString) = [file]
     file_itr(files) = files
-
-    Channel{record_type}(channel_size) do ch
+    Channel{Example}(channel_size) do ch
         @threads for file_name in file_itr(files)
             open(decompressor_stream(compression), file_name, "r") do io
                 buffered_io = BufferedInputStream(io, bufsize)
                 while !eof(buffered_io)
-                    instance = readproto(IOBuffer(read_record(buffered_io)), record_type())
-                    put!(ch, f(instance))
+                    instance = readproto(IOBuffer(read_record(buffered_io)), Example())
+                    put!(ch, instance)
                 end
             end
         end
