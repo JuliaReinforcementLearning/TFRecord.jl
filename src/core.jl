@@ -51,6 +51,7 @@ Read tensorflow records from file(s).
 - `compression=nothing`. No compression by default. Optional values are `:zlib` and `:gzip`.
 - `bufsize=10*1024*1024`. Set the buffer size of internal `BufferedOutputStream`. The default value is `10M`. Suggested value is between `1M`~`100M`.
 - `channel_size=1000`. The number of pre-fetched elements.
+- `record_type=Example`, see https://github.com/JuliaReinforcementLearning/TFRecord.jl/pull/11
 
 !!! note
 
@@ -61,6 +62,8 @@ function read(
     compression = nothing,
     bufsize = 10 * 1024 * 1024,
     channel_size = 1_000,
+    record_type = Example,
+
 )
     file_itr(file::AbstractString) = [file]
     file_itr(files) = files
@@ -69,7 +72,7 @@ function read(
             open(decompressor_stream(compression), file_name, "r") do io
                 buffered_io = BufferedInputStream(io, bufsize)
                 while !eof(buffered_io)
-                    instance = readproto(IOBuffer(read_record(buffered_io)), Example())
+                    instance = readproto(IOBuffer(read_record(buffered_io)), record_type())
                     put!(ch, instance)
                 end
             end
