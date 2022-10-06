@@ -3,7 +3,7 @@ using Base.Threads
 using CodecZlib
 using BufferedStreams
 using MacroTools: @forward
-using ProtoBuf: ProtoType
+using ProtoBuf
 using TranscodingStreams: NoopStream
 
 # Ref: https://github.com/tensorflow/tensorflow/blob/295ad2781683835be974faba0a191528d8079768/tensorflow/core/lib/hash/crc32c.h#L50-L59
@@ -72,7 +72,7 @@ function read(
             open(decompressor_stream(compression), file_name, "r") do io
                 buffered_io = BufferedInputStream(io, bufsize)
                 while !eof(buffered_io)
-                    instance = readproto(IOBuffer(read_record(buffered_io)), record_type())
+                    instance = decode(IOBuffer(read_record(buffered_io)), record_type())
                     put!(ch, instance)
                 end
             end
@@ -113,9 +113,9 @@ function write(io::IO, xs)
     end
 end
 
-function write(io::IO, x::ProtoType)
+function write(io::IO, x::BytesList)
     buff = IOBuffer()
-    writeproto(buff, x)
+    encode(buff, x)
 
     data_crc = mask(crc32c(seekstart(buff)))
     data = take!(seekstart(buff))
@@ -135,23 +135,21 @@ end
 # convert
 #####
 
-Base.convert(::Type{Feature}, x::Int) = Feature(;int64_list=Int64List(value=[x]))
-Base.convert(::Type{Feature}, x::Bool) = Feature(;int64_list=Int64List(value=[Int(x)]))
-Base.convert(::Type{Feature}, x::Float32) = Feature(;float_list=FloatList(value=[x]))
-Base.convert(::Type{Feature}, x::AbstractString) = Feature(;bytes_list=BytesList(value=[unsafe_wrap(Vector{UInt8}, x)]))
+Base.convert(::Type{Feature}, x::Int) = Feature(OneOf(:int64_list,Int64List([x])))
+Base.convert(::Type{Feature}, x::Bool) = Feature(OneOf(:int64_list,Int64List([Int(x)])))
+Base.convert(::Type{Feature}, x::Float32) = Feature(OneOf(:float_list,FloatList([x])))
+Base.convert(::Type{Feature}, x::AbstractString) = Feature(OneOf(:bytes_list,BytesList([unsafe_wrap(Vector{UInt8}, x)])))
 
-Base.convert(::Type{Feature}, x::Vector{Int}) = Feature(;int64_list=Int64List(value=x))
-Base.convert(::Type{Feature}, x::Vector{Bool}) = Feature(;int64_list=Int64List(value=convert(Vector{Int}, x)))
-Base.convert(::Type{Feature}, x::Vector{Float32}) = Feature(;float_list=FloatList(value=x))
-Base.convert(::Type{Feature}, x::Vector{<:AbstractString}) = Feature(;bytes_list=BytesList(value=[unsafe_wrap(Vector{UInt8}, s) for s in x]))
-Base.convert(::Type{Feature}, x::Vector{Array{UInt8,1}}) = Feature(;bytes_list=BytesList(value=x))
+Base.convert(::Type{Feature}, x::Vector{Int}) = Feature(OneOf(:int64_list,Int64List(x)))
+Base.convert(::Type{Feature}, x::Vector{Bool}) = Feature(OneOf(:int64_list,Int64List(convert(Vector{Int}, x))))
+Base.convert(::Type{Feature}, x::Vector{Float32}) = Feature(OneOf(:float_list,FloatList(x)))
+Base.convert(::Type{Feature}, x::Vector{<:AbstractString}) = Feature(OneOf(:bytes_list,BytesList([unsafe_wrap(Vector{UInt8}, s) for s in x])))
+Base.convert(::Type{Feature}, x::Vector{Array{UInt8,1}}) = Feature(OneOf(:bytes_list,BytesList(x)))
 
-Base.convert(::Type{Features}, x::Dict) = Features(;feature=Dict(k=>convert(Feature, v) for (k, v) in x))
+Base.convert(::Type{Features}, x::Dict) = Features(Dict(k=>convert(Feature, v) for (k, v) in x))
 
 function Base.convert(::Type{Example}, x::Dict)
-    d = Example()
-    d.features = convert(Features, x)
-    d
+    return Example(convert(Features, x))
 end
 
 # (De)compression
