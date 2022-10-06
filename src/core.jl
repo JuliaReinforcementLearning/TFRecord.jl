@@ -30,15 +30,16 @@ byte   data[n]
 uint32 masked_crc32_of_data
 ```
 """
+# TODO check
 function read_record(io::IO)
     n = Base.read(io, sizeof(UInt64))
     masked_crc32_n = Base.read(io, UInt32)
-    crc32c(n) == unmask(masked_crc32_n) || error("record corrupted, did you set the correct compression?")
+    @assert crc32c(n) == unmask(masked_crc32_n) "record corrupted, did you set the correct compression?"
 
     data = Base.read(io, Int(reinterpret(UInt64, n)[]))  # !!! watch https://github.com/JuliaIO/TranscodingStreams.jl/pull/104
     masked_crc32_data = Base.read(io, UInt32)
-    crc32c(data) == unmask(masked_crc32_data) || error("record corrupted, did you set the correct compression?")
-    data
+    @assert crc32c(data) == unmask(masked_crc32_data) "record corrupted, did you set the correct compression?"
+    return data
 end
 
 """
@@ -72,13 +73,18 @@ function read(
             open(decompressor_stream(compression), file_name, "r") do io
                 buffered_io = BufferedInputStream(io, bufsize)
                 while !eof(buffered_io)
-                    instance = decode(IOBuffer(read_record(buffered_io)), record_type())
+                    buff = IOBuffer(read_record(buffered_io)) 
+                    d = ProtoDecoder(buff)
+                    instance = decode(d, record_type)
                     put!(ch, instance)
+                # close(buffered_io)
                 end
             end
         end
     end
 end
+
+
 
 #####
 # TFRecordWriter
@@ -102,8 +108,9 @@ for example `100M`.
 """
 function write(s::AbstractString, x; compression=nothing, bufsize=1024*1024)
     open(compressor_stream(compression), s, "w") do io
-        buffered_io = BufferedOutputStream(open(s, "w"), bufsize)
+        buffered_io = BufferedOutputStream(io, bufsize)
         write(buffered_io, x)
+        close(buffered_io)
     end
 end
 
@@ -113,9 +120,11 @@ function write(io::IO, xs)
     end
 end
 
-function write(io::IO, x::BytesList)
+
+function write(io::IO, x::Example)
     buff = IOBuffer()
-    encode(buff, x)
+    e = ProtoEncoder(buff)
+    encode(e, x)
 
     data_crc = mask(crc32c(seekstart(buff)))
     data = take!(seekstart(buff))
