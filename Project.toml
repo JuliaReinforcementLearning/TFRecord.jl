@@ -14,7 +14,6 @@ TranscodingStreams = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 
 [compat]
 BufferedStreams = "1.1"
-CRC32c = "1.8"
 CodecZlib = "0.7"
 EnumX = "1"
 MacroTools = "0.5"
