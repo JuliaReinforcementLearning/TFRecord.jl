@@ -3,7 +3,7 @@ using Base.Threads
 using CodecZlib
 using BufferedStreams
 using MacroTools: @forward
-using ProtoBuf: ProtoType
+using ProtoBuf
 using TranscodingStreams: NoopStream
 
 # Ref: https://github.com/tensorflow/tensorflow/blob/295ad2781683835be974faba0a191528d8079768/tensorflow/core/lib/hash/crc32c.h#L50-L59
@@ -30,15 +30,16 @@ byte   data[n]
 uint32 masked_crc32_of_data
 ```
 """
+# TODO check
 function read_record(io::IO)
     n = Base.read(io, sizeof(UInt64))
     masked_crc32_n = Base.read(io, UInt32)
-    crc32c(n) == unmask(masked_crc32_n) || error("record corrupted, did you set the correct compression?")
+    @assert crc32c(n) == unmask(masked_crc32_n) "record corrupted, did you set the correct compression?"
 
     data = Base.read(io, Int(reinterpret(UInt64, n)[]))  # !!! watch https://github.com/JuliaIO/TranscodingStreams.jl/pull/104
     masked_crc32_data = Base.read(io, UInt32)
-    crc32c(data) == unmask(masked_crc32_data) || error("record corrupted, did you set the correct compression?")
-    data
+    @assert crc32c(data) == unmask(masked_crc32_data) "record corrupted, did you set the correct compression?"
+    return data
 end
 
 """
@@ -72,13 +73,18 @@ function read(
             open(decompressor_stream(compression), file_name, "r") do io
                 buffered_io = BufferedInputStream(io, bufsize)
                 while !eof(buffered_io)
-                    instance = readproto(IOBuffer(read_record(buffered_io)), record_type())
+                    buff = IOBuffer(read_record(buffered_io)) 
+                    d = ProtoDecoder(buff)
+                    instance = decode(d, record_type)
                     put!(ch, instance)
+                # close(buffered_io)
                 end
             end
         end
     end
 end
+
+
 
 #####
 # TFRecordWriter
@@ -102,8 +108,9 @@ for example `100M`.
 """
 function write(s::AbstractString, x; compression=nothing, bufsize=1024*1024)
     open(compressor_stream(compression), s, "w") do io
-        buffered_io = BufferedOutputStream(open(s, "w"), bufsize)
+        buffered_io = BufferedOutputStream(io, bufsize)
         write(buffered_io, x)
+        close(buffered_io)
     end
 end
 
@@ -113,9 +120,11 @@ function write(io::IO, xs)
     end
 end
 
-function write(io::IO, x::ProtoType)
+
+function write(io::IO, x::Example)
     buff = IOBuffer()
-    writeproto(buff, x)
+    e = ProtoEncoder(buff)
+    encode(e, x)
 
     data_crc = mask(crc32c(seekstart(buff)))
     data = take!(seekstart(buff))
@@ -135,23 +144,21 @@ end
 # convert
 #####
 
-Base.convert(::Type{Feature}, x::Int) = Feature(;int64_list=Int64List(value=[x]))
-Base.convert(::Type{Feature}, x::Bool) = Feature(;int64_list=Int64List(value=[Int(x)]))
-Base.convert(::Type{Feature}, x::Float32) = Feature(;float_list=FloatList(value=[x]))
-Base.convert(::Type{Feature}, x::AbstractString) = Feature(;bytes_list=BytesList(value=[unsafe_wrap(Vector{UInt8}, x)]))
+Base.convert(::Type{Feature}, x::Int) = Feature(OneOf(:int64_list,Int64List([x])))
+Base.convert(::Type{Feature}, x::Bool) = Feature(OneOf(:int64_list,Int64List([Int(x)])))
+Base.convert(::Type{Feature}, x::Float32) = Feature(OneOf(:float_list,FloatList([x])))
+Base.convert(::Type{Feature}, x::AbstractString) = Feature(OneOf(:bytes_list,BytesList([unsafe_wrap(Vector{UInt8}, x)])))
 
-Base.convert(::Type{Feature}, x::Vector{Int}) = Feature(;int64_list=Int64List(value=x))
-Base.convert(::Type{Feature}, x::Vector{Bool}) = Feature(;int64_list=Int64List(value=convert(Vector{Int}, x)))
-Base.convert(::Type{Feature}, x::Vector{Float32}) = Feature(;float_list=FloatList(value=x))
-Base.convert(::Type{Feature}, x::Vector{<:AbstractString}) = Feature(;bytes_list=BytesList(value=[unsafe_wrap(Vector{UInt8}, s) for s in x]))
-Base.convert(::Type{Feature}, x::Vector{Array{UInt8,1}}) = Feature(;bytes_list=BytesList(value=x))
+Base.convert(::Type{Feature}, x::Vector{Int}) = Feature(OneOf(:int64_list,Int64List(x)))
+Base.convert(::Type{Feature}, x::Vector{Bool}) = Feature(OneOf(:int64_list,Int64List(convert(Vector{Int}, x))))
+Base.convert(::Type{Feature}, x::Vector{Float32}) = Feature(OneOf(:float_list,FloatList(x)))
+Base.convert(::Type{Feature}, x::Vector{<:AbstractString}) = Feature(OneOf(:bytes_list,BytesList([unsafe_wrap(Vector{UInt8}, s) for s in x])))
+Base.convert(::Type{Feature}, x::Vector{Array{UInt8,1}}) = Feature(OneOf(:bytes_list,BytesList(x)))
 
-Base.convert(::Type{Features}, x::Dict) = Features(;feature=Dict(k=>convert(Feature, v) for (k, v) in x))
+Base.convert(::Type{Features}, x::Dict) = Features(Dict(k=>convert(Feature, v) for (k, v) in x))
 
 function Base.convert(::Type{Example}, x::Dict)
-    d = Example()
-    d.features = convert(Features, x)
-    d
+    return Example(convert(Features, x))
 end
 
 # (De)compression
